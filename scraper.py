@@ -4,43 +4,63 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 import os
+import requests
+from bs4 import BeautifulSoup
 
-# 1. 5대 품목 x 7개 사이트 (총 35개) 정찰 데이터 세팅
 today_str = datetime.now().strftime("%m/%d")
 
-# 주인님, 이 리스트 안에 7개 사이트의 모든 가격 정보가 담깁니다.
-data = [
-    # --- [1] 양파(못난이) 10kg ---
-    {"name": "양파(못난이)", "spec": "10kg", "price": 9100, "source": "못난이마켓", "link": "https://m.auction.co.kr/Shop/uglymarket", "note": f"최저가 관제 ({today_str})"},
-    {"name": "양파(못난이)", "spec": "10kg", "price": 9500, "source": "오더히어로", "link": "https://orderhero.co.kr", "note": "관제됨"},
-    {"name": "양파(못난이)", "spec": "10kg", "price": 10200, "source": "비굿", "link": "https://begood.co.kr", "note": "관제됨"},
-    {"name": "양파(못난이)", "spec": "10kg", "price": 10500, "source": "프레시웰", "link": "https://freshwell.co.kr", "note": "관제됨"},
-    {"name": "양파(못난이)", "spec": "10kg", "price": 11000, "source": "예스어스", "link": "https://yesus.co.kr", "note": "관제됨"},
-    {"name": "양파(못난이)", "spec": "10kg", "price": 11200, "source": "어글리어스", "link": "https://uglyus.co.kr", "note": "관제됨"},
-    {"name": "양파(못난이)", "spec": "10kg", "price": 11500, "source": "두고", "link": "https://doogo.co.kr", "note": "관제됨"},
+# 1. 로그인 필요 없는 '오픈마켓(지마켓)' 실시간 크롤링 엔진
+def get_real_item(keyword, item_name, spec):
+    url = f"https://browse.gmarket.co.kr/search?keyword={keyword}"
+    # 파이썬이 아니라 '진짜 사람'이 접속하는 것처럼 위장하는 신분증
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
+    
+    try:
+        response = requests.get(url, headers=headers)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 검색 결과 중 첫 번째(가장 상단) 상품 찾기
+        item = soup.select_one('.box__item-container')
+        if not item:
+            return None
+            
+        # 진짜 링크와 가격 추출
+        link = item.select_one('.box__item-title a')['href']
+        price_text = item.select_one('.box__price-seller strong').text.replace(',', '')
+        price = int(price_text)
+        
+        return {
+            "name": item_name,
+            "spec": spec,
+            "price": price,
+            "source": "오픈마켓(실시간)",
+            "link": link,  # <--- 진짜 클릭 되는 구매 페이지 주소!
+            "note": f"★실시간 실측 성공 ({today_str})★"
+        }
+    except Exception as e:
+        print(f"크롤링 에러: {e}")
+        return None
 
-    # --- [2] 감자(못난이) 10kg ---
-    {"name": "감자(못난이)", "spec": "10kg", "price": 10300, "source": "오더히어로", "link": "https://orderhero.co.kr", "note": f"최저가 관제 ({today_str})"},
-    {"name": "감자(못난이)", "spec": "10kg", "price": 10800, "source": "못난이마켓", "link": "https://m.auction.co.kr/Shop/uglymarket", "note": "관제됨"},
-    {"name": "감자(못난이)", "spec": "10kg", "price": 11200, "source": "비굿", "link": "https://begood.co.kr", "note": "관제됨"},
-    {"name": "감자(못난이)", "spec": "10kg", "price": 11500, "source": "어글리어스", "link": "https://uglyus.co.kr", "note": "관제됨"},
-    {"name": "감자(못난이)", "spec": "10kg", "price": 11800, "source": "예스어스", "link": "https://yesus.co.kr", "note": "관제됨"},
-    {"name": "감자(못난이)", "spec": "10kg", "price": 12000, "source": "프레시웰", "link": "https://freshwell.co.kr", "note": "관제됨"},
-    {"name": "감자(못난이)", "spec": "10kg", "price": 12500, "source": "두고", "link": "https://doogo.co.kr", "note": "관제됨"},
+# 2. 5대 품목 실제 데이터 수집 명령
+data = []
 
-    # --- [3] 당근, [4] 바질, [5] 백오이 (동일한 방식으로 7개씩 들어갑니다) ---
-    {"name": "당근(못난이)", "spec": "10kg", "price": 13100, "source": "비굿", "link": "https://begood.co.kr", "note": "관제됨"},
-    {"name": "당근(못난이)", "spec": "10kg", "price": 14000, "source": "오더히어로", "link": "https://orderhero.co.kr", "note": "관제됨"},
-    {"name": "바질", "spec": "1kg", "price": 21500, "source": "프레시웰", "link": "https://freshwell.co.kr", "note": "관제됨"},
-    {"name": "바질", "spec": "1kg", "price": 23000, "source": "비굿", "link": "https://begood.co.kr", "note": "관제됨"},
-    {"name": "백오이", "spec": "50개", "price": 17800, "source": "예스어스", "link": "https://yesus.co.kr", "note": "관제됨"},
-    {"name": "백오이", "spec": "50개", "price": 19000, "source": "두고", "link": "https://doogo.co.kr", "note": "관제됨"}
+# 주인님의 핵심 품목들을 차례대로 검색해서 살아있는 링크를 가져옵니다
+items_to_search = [
+    ("못난이 감자 10kg", "감자(못난이)", "10kg"),
+    ("못난이 양파 10kg", "양파(못난이)", "10kg"),
+    ("못난이 당근 10kg", "당근(못난이)", "10kg"),
+    ("생바질 1kg", "바질", "1kg"),
+    ("백오이 50개", "백오이", "50개")
 ]
 
-# 2. JSON 다림질 포맷 변환
+for search_keyword, name, spec in items_to_search:
+    result = get_real_item(search_keyword, name, spec)
+    if result:
+        data.append(result)
+
+# 3. JSON 변환 및 G메일 발송 (이전과 동일)
 json_data = json.dumps(data, ensure_ascii=False, indent=2)
 
-# 3. G메일 자동 발송 세팅
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = os.environ.get("GMAIL_USER") 
@@ -53,13 +73,12 @@ msg['From'] = SENDER_EMAIL
 msg['To'] = RECEIVER_EMAIL
 msg.attach(MIMEText(json_data, 'plain', 'utf-8'))
 
-# 4. 발송 실행
 try:
     server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
     server.starttls()
     server.login(SENDER_EMAIL, SENDER_PASSWORD)
     server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
     server.quit()
-    print("✅ [TCSE] 전체 사이트 정찰 리포트 발송 완료!")
+    print("✅ [실전 크롤링] 접속 가능한 진짜 링크 발송 완료!")
 except Exception as e:
-    print(f"❌ 발송 실패: {e}")
+    print(f"❌ 메일 발송 실패: {e}")
